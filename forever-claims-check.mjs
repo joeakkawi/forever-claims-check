@@ -4,6 +4,9 @@
 //
 //   FOREVER_ORIGIN=https://... FOREVER_SHARED_KEY=... node extras/forever-claims-check.mjs
 //
+// Optional FOREVER_TEST_SUB (a member's Discord ID who has claimed characters) adds a positive live /forever run:
+// one real card, cooldown check, release check; their cooldown is left clear.
+//
 // Side effects: creates a few short-lived login states for a test Discord id (all consumed or expiring in 10 min).
 // Nothing is claimed. Output never includes the key, session tokens, the Forever address or login URLs, so it can be
 // pasted as evidence.
@@ -108,6 +111,38 @@ const b5 = await bot(`/bot/v1/summary/${rosterId}.png`, TEST_SUB, `bot-summary:$
 check("/forever command, card: correctly signed request for a guild character this user hasn't claimed refused (403)", b5.status === 403 && b5.body.error === "not_yours", `HTTP ${b5.status} ${b5.body.error || ""}`);
 const b6 = await bot("/bot/v1/summary/1.png", TEST_SUB, `bot-summary:1:${TEST_SUB}:{ts}`);
 check("/forever command, card: character outside the guild roster refused (404)", b6.status === 404 && b6.body.error === "not_found", `HTTP ${b6.status} ${b6.body.error || ""}`);
+
+
+// Positive /forever run against the live service, as a real member who has claimed characters.
+// Optional: set FOREVER_TEST_SUB to that member's Discord ID. Makes exactly one real card, checks it, checks the
+// 20 minute cooldown, then hands the card's release token back (what the bot does when Discord can't post it) and
+// checks the member's try is restored. The member's cooldown is left clear afterwards. The ID is never printed.
+const LIVE = String(process.env.FOREVER_TEST_SUB || "");
+if (!/^\d{5,25}$/.test(LIVE)) console.log("SKIP  /forever command, live card: set FOREVER_TEST_SUB to run the positive test");
+else {
+  const list = await bot("/bot/v1/characters", LIVE, `bot-chars:${LIVE}:{ts}`);
+  const chars = list.body.characters || [];
+  check("/forever command, live: member's claimed characters listed, highest level first", list.status === 200 && chars.length > 0 && chars.every((c, i) => i === 0 || chars[i - 1].level >= c.level), `${chars.length} characters`);
+  check("/forever command, live: no cooldown running before the test", list.body.cooldown === 0, list.body.cooldown ? `wait ${Math.ceil(list.body.cooldown / 60)} min and re-run` : "");
+  if (chars.length && list.body.cooldown === 0) {
+    const id = chars[0].id, cts = String(Date.now());
+    const t0 = Date.now();
+    const r = await fetch(`${ORIGIN}/bot/v1/summary/${id}.png`, { headers: { "x-mk-ts": cts, "x-mk-sub": LIVE, "x-mk-sig": hmac(`bot-summary:${id}:${LIVE}:${cts}`) } });
+    const buf = Buffer.from(await r.arrayBuffer()), token = r.headers.get("x-forever-release") || "";
+    const isPng = buf.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const dims = isPng ? `${buf.readUInt32BE(16)}x${buf.readUInt32BE(20)}` : "";
+    check("/forever command, live: real card returned as a 1080x1080 PNG", r.status === 200 && isPng && dims === "1080x1080", `HTTP ${r.status}, ${dims || "not a PNG"}, ${Math.round(buf.length / 1024)} KB, ${Date.now() - t0} ms`);
+    check("/forever command, live: card comes with a single-use release token", /^[0-9a-f]{32}$/.test(token));
+    const again = await bot(`/bot/v1/summary/${id}.png`, LIVE, `bot-summary:${id}:${LIVE}:{ts}`);
+    check("/forever command, live: second card straight after refused for 20 minutes", again.status === 429 && again.body.error === "cooldown" && again.body.retryAfter > 1100, `HTTP ${again.status} ${again.body.error || ""}, retry in ${Math.ceil((again.body.retryAfter || 0) / 60)} min`);
+    const rel = async (tok) => { const t = String(Date.now()); const x = await fetch(`${ORIGIN}/bot/v1/summary/${id}/release`, { method: "POST", headers: { "x-mk-release": tok, "x-mk-ts": t, "x-mk-sub": LIVE, "x-mk-sig": hmac(`bot-release:${id}:${LIVE}:${tok}:${t}`) } }); return x.json().catch(() => ({})); };
+    const r1 = await rel(token);
+    const after = await bot("/bot/v1/characters", LIVE, `bot-chars:${LIVE}:{ts}`);
+    check("/forever command, live: Discord upload failure simulated, release restores the member's try", r1.released === true && after.body.cooldown === 0, `released ${r1.released}, cooldown ${after.body.cooldown}`);
+    const r2 = await rel(token);
+    check("/forever command, live: release token works only once", r2.released === false);
+  }
+}
 
 console.log(`\n${failed ? `${failed} FAILED` : "All checks passed"}  (exit code ${failed ? 1 : 0})`);
 process.exit(failed ? 1 : 0);
