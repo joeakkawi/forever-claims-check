@@ -1,5 +1,6 @@
 # Runs the Forever claims check against the deployed Forever Worker.
-# Needs two repository secrets: FOREVER_ORIGIN and FOREVER_SHARED_KEY (Settings > Secrets and variables > Actions).
+# Needs repository secrets FOREVER_ORIGIN and FOREVER_SHARED_KEY (Settings > Secrets and variables > Actions).
+# Optional secret FOREVER_TEST_SUB (your Discord ID, with claimed characters) adds the live /forever card test.
 name: Forever claims check
 on:
   workflow_dispatch:
@@ -15,4 +16,5 @@ jobs:
         env:
           FOREVER_ORIGIN: ${{ secrets.FOREVER_ORIGIN }}
           FOREVER_SHARED_KEY: ${{ secrets.FOREVER_SHARED_KEY }}
+          FOREVER_TEST_SUB: ${{ secrets.FOREVER_TEST_SUB }}
         run: node forever-claims-check.mjs
