@@ -1,0 +1,18 @@
+# Runs the Forever claims check against the deployed Forever Worker.
+# Needs two repository secrets: FOREVER_ORIGIN and FOREVER_SHARED_KEY (Settings > Secrets and variables > Actions).
+name: Forever claims check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run claims check against the deployed Worker
+        env:
+          FOREVER_ORIGIN: ${{ secrets.FOREVER_ORIGIN }}
+          FOREVER_SHARED_KEY: ${{ secrets.FOREVER_SHARED_KEY }}
+        run: node forever-claims-check.mjs
