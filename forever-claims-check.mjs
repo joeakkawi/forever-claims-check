@@ -117,8 +117,8 @@ check("/forever command, card: character outside the guild roster refused (404)"
 // Optional: set FOREVER_TEST_SUB to that member's Discord ID. Makes exactly one real card, checks it, checks the
 // 20 minute cooldown, then hands the card's release token back (what the bot does when Discord can't post it) and
 // checks the member's try is restored. The member's cooldown is left clear afterwards. The ID is never printed.
-const LIVE = String(process.env.FOREVER_TEST_SUB || "");
-if (!/^\d{5,25}$/.test(LIVE)) console.log("SKIP  /forever command, live card: set FOREVER_TEST_SUB to run the positive test");
+const LIVE_RAW = String(process.env.FOREVER_TEST_SUB || ""), LIVE = LIVE_RAW.replace(/[\s"'<>@!]/g, "");
+if (!/^\d{5,25}$/.test(LIVE)) console.log(`SKIP  /forever command, live card: ${LIVE_RAW ? `FOREVER_TEST_SUB is set but isn't a Discord user ID (${LIVE.length} characters, ${/\D/.test(LIVE) ? "contains letters or symbols" : "too short or too long"})` : "FOREVER_TEST_SUB is empty or not passed to this step"}`);
 else {
   const list = await bot("/bot/v1/characters", LIVE, `bot-chars:${LIVE}:{ts}`);
   const chars = list.body.characters || [];
