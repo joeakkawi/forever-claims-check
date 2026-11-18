@@ -1,4 +1,4 @@
-// Forever claiming: black-box check against the deployed Forever service.
+// Forever claiming and the /forever command: black-box check against the deployed Forever service.
 // Uses only what Mousekeeper already has (FOREVER_ORIGIN, FOREVER_SHARED_KEY). No Battle.net login needed:
 // every check either stops before the Battle.net exchange or uses a deliberately invalid code.
 //
@@ -86,6 +86,28 @@ check("Public profile: request with a wrong signature refused (404)", p2.status 
 const p3 = await fetch(`${ORIGIN}/public/c/${slug}.json`, { headers: { "x-mk-ts": pts, "x-mk-sig": hmac(`public:${slug}:${pts}`) } });
 const p3body = await p3.json().catch(() => ({}));
 check("Public profile: correctly signed request for a non-member refused by the roster check (404)", p3.status === 404 && p3body.error === "not_found", `HTTP ${p3.status} ${p3body.error || ""}`);
+
+
+// Discord /forever command endpoints. None of these make a card or start a cooldown: each is refused before that.
+const bot = async (path, sub, msg, ts = String(Date.now()), sig) => {
+  const headers = sub == null ? {} : { "x-mk-ts": ts, "x-mk-sub": sub, "x-mk-sig": sig ?? hmac(msg.replace("{ts}", ts)) };
+  const r = await fetch(`${ORIGIN}${path}`, { headers });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+};
+const b1 = await bot("/bot/v1/characters", null);
+check("/forever command, list: request with no signature headers refused (401)", b1.status === 401, `HTTP ${b1.status}`);
+const b2 = await bot("/bot/v1/characters", TEST_SUB, `bot-chars:${OTHER_SUB}:{ts}`);
+check("/forever command, list: signature made for another Discord user refused (401)", b2.status === 401, `HTTP ${b2.status}`);
+const b3 = await bot("/bot/v1/characters", TEST_SUB, `bot-chars:${TEST_SUB}:{ts}`);
+check("/forever command, list: correctly signed request for a member with no claims returns an empty list", b3.status === 200 && Array.isArray(b3.body.characters) && b3.body.characters.length === 0, `HTTP ${b3.status}, ${b3.body.characters?.length ?? "?"} characters`);
+// A real guild character, read the way a logged-in member's page reads it.
+const rosterId = await (async () => { const t = await session(TEST_SUB); const d = await (await fetch(`${ORIGIN}/api/data`, { headers: { Authorization: `Bearer ${t}` } })).json(); return d.roster?.[0]?.id; })();
+const b4 = await bot(`/bot/v1/summary/${rosterId}.png`, TEST_SUB, `bot-summary:${rosterId}:${TEST_SUB}:{ts}`, String(Date.now() - 90000));
+check("/forever command, card: 90 second old signature refused (401)", b4.status === 401, `HTTP ${b4.status}`);
+const b5 = await bot(`/bot/v1/summary/${rosterId}.png`, TEST_SUB, `bot-summary:${rosterId}:${TEST_SUB}:{ts}`);
+check("/forever command, card: correctly signed request for a guild character this user hasn't claimed refused (403)", b5.status === 403 && b5.body.error === "not_yours", `HTTP ${b5.status} ${b5.body.error || ""}`);
+const b6 = await bot("/bot/v1/summary/1.png", TEST_SUB, `bot-summary:1:${TEST_SUB}:{ts}`);
+check("/forever command, card: character outside the guild roster refused (404)", b6.status === 404 && b6.body.error === "not_found", `HTTP ${b6.status} ${b6.body.error || ""}`);
 
 console.log(`\n${failed ? `${failed} FAILED` : "All checks passed"}  (exit code ${failed ? 1 : 0})`);
 process.exit(failed ? 1 : 0);
